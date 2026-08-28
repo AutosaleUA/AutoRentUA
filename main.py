@@ -480,6 +480,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     upsert_user(update, context)
     log_event(update, "start")
 
+    # /start must always be able to break out of a stuck conversation, so
+    # clear any half-finished listing draft before anything else.
+    context.user_data.pop("ad", None)
+
     if context.args and context.args[0].lower() == "tester":
         conn = db()
         conn.execute(
@@ -1063,44 +1067,44 @@ def main():
         states={
             BRAND: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_brand),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             MODEL: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_model),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             FUEL: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_fuel),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             YEAR: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_year),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             MILEAGE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_mileage),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             TRANSMISSION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_transmission),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             PRICE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_price),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             CITY: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_city),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             DESCRIPTION: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, get_description),
-                MessageHandler(filters.ALL, invalid_text),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
             ],
             PHOTO: [
                 MessageHandler(filters.PHOTO, get_photo),
                 MessageHandler(filters.Regex(r"^✅ Готово$"), finish_photos),
-                MessageHandler(filters.ALL, photo_invalid),
+                MessageHandler(filters.ALL & ~filters.COMMAND, photo_invalid),
             ],
             CONFIRM: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, confirm),
@@ -1108,6 +1112,7 @@ def main():
         },
         fallbacks=[
             CommandHandler("cancel", cancel),
+            CommandHandler("start", start),
             MessageHandler(
                 filters.Regex(r"^🔑 Здати авто в оренду$"),
                 restart_sell,
@@ -1133,7 +1138,7 @@ def main():
     )
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown))
 
-    print("AutoRent UA bot started — version 1")
+    print("AutoRent UA bot started — version 2")
     app.run_polling()
 
 
