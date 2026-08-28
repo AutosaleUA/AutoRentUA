@@ -1,9 +1,10 @@
+
 import os
 import sqlite3
 import json
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import requests
 from flask import Flask, jsonify, send_from_directory
@@ -167,6 +168,10 @@ def init_db():
         # Permanent public URLs for the mini app catalog (photos column keeps
         # Telegram file_ids, used only for reposting to the channel).
         conn.execute("ALTER TABLE listings ADD COLUMN photo_urls TEXT")
+    if "last_published_at" not in columns:
+        # Tracks the most recent (re)publication time, separate from the
+        # original created_at, for the 24h per-listing repost cooldown.
+        conn.execute("ALTER TABLE listings ADD COLUMN last_published_at TEXT")
     conn.commit()
     conn.close()
 
@@ -210,6 +215,36 @@ def download_photo_permanently(file_id):
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+DAILY_LISTING_LIMIT = 10
+REPOST_COOLDOWN_HOURS = 24
+
+
+def hours_until(iso_timestamp, hours):
+    """Returns hours remaining (float, >=0) until iso_timestamp + hours from now."""
+    try:
+        then = datetime.fromisoformat(iso_timestamp)
+    except (ValueError, TypeError):
+        return 0
+    target = then + timedelta(hours=hours)
+    remaining = (target - datetime.now(timezone.utc)).total_seconds() / 3600
+    return max(0, remaining)
+
+
+def check_daily_limit(user_id):
+    """Returns (allowed: bool, hours_remaining: float) for creating a new listing today."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    conn = db()
+    rows = conn.execute(
+        "SELECT created_at FROM listings WHERE user_id = ? AND created_at >= ? ORDER BY created_at ASC",
+        (user_id, cutoff),
+    ).fetchall()
+    conn.close()
+    if len(rows) < DAILY_LISTING_LIMIT:
+        return True, 0
+    oldest = rows[0]["created_at"]
+    return False, hours_until(oldest, 24)
 
 
 def is_admin(user_id):
@@ -750,6 +785,15 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return ConversationHandler.END
 
+        allowed, hours_left = check_daily_limit(update.effective_user.id)
+        if not allowed:
+            await update.message.reply_text(
+                f"❗ Ви досягли ліміту {DAILY_LISTING_LIMIT} нових оголошень на добу. "
+                f"Спробуйте ще раз через {hours_left:.1f} год.",
+                reply_markup=main_menu(context),
+            )
+            return ConversationHandler.END
+
         photos = ad.get("photos", [])
         caption = build_ad_caption(ad)
 
@@ -761,16 +805,18 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if url
             ]
 
+            published_at = now_iso()
             conn = db()
             conn.execute(
-                "INSERT INTO listings(user_id, created_at, status, ad_data, photos, photo_urls) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO listings(user_id, created_at, status, ad_data, photos, photo_urls, last_published_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     update.effective_user.id,
-                    now_iso(),
+                    published_at,
                     "active",
                     json.dumps(ad, ensure_ascii=False),
                     json.dumps(photos),
                     json.dumps(photo_urls),
+                    published_at,
                 ),
             )
             conn.commit()
@@ -864,7 +910,7 @@ async def repost_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn = db()
     row = conn.execute(
-        "SELECT ad_data, photos FROM listings WHERE id = ? AND user_id = ?",
+        "SELECT ad_data, photos, last_published_at, created_at FROM listings WHERE id = ? AND user_id = ?",
         (listing_id, query.from_user.id),
     ).fetchone()
     conn.close()
@@ -872,6 +918,14 @@ async def repost_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not row or not row["ad_data"]:
         await query.message.reply_text(
             "ℹ️ Це оголошення створене до підключення збереження даних. Його потрібно створити заново."
+        )
+        return
+
+    last_published = row["last_published_at"] or row["created_at"]
+    hours_left = hours_until(last_published, REPOST_COOLDOWN_HOURS)
+    if hours_left > 0:
+        await query.message.reply_text(
+            f"❗ Це оголошення можна повторно опублікувати через {hours_left:.1f} год."
         )
         return
 
@@ -890,6 +944,13 @@ async def repost_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         await send_channel_publication(context, caption, photos)
+        conn = db()
+        conn.execute(
+            "UPDATE listings SET last_published_at = ? WHERE id = ?",
+            (now_iso(), listing_id),
+        )
+        conn.commit()
+        conn.close()
         log_event(update, "repost")
         await query.message.reply_text(
             "🚀 Оголошення повторно опубліковано!",
