@@ -388,7 +388,6 @@ TEXT = {
     "uk": {
         "welcome": "🔑 Ласкаво просимо до AutoRent UA!\nОрендуйте та здавайте автомобілі в оренду.",
         "sell": "🔑 Здати авто в оренду",
-        "find": "🔎 Знайти авто",
         "my": "📋 Мої оголошення",
         "brand": "🚗 Введіть марку:",
         "model": "🔑 Введіть модель:",
@@ -413,7 +412,6 @@ TEXT = {
         "cancel": "❌ Скасувати",
         "created": "🎉 Оголошення створено!",
         "cancelled": "Оголошення скасовано.",
-        "find_msg": "🔎 Пошук буде доступний після підключення бази оголошень.",
         "my_msg": "📋 Ваші оголошення будуть доступні після підключення бази даних.",
         "petrol": "Бензин",
         "diesel": "Дизель",
@@ -437,7 +435,7 @@ def tr(context, key, **kwargs):
 def main_menu(context):
     return ReplyKeyboardMarkup(
         [
-            [tr(context, "sell"), tr(context, "find")],
+            [tr(context, "sell")],
             [tr(context, "my")],
         ],
         resize_keyboard=True,
@@ -667,7 +665,7 @@ def build_ad_caption(ad):
         f"🛞 {ad['mileage']} км\n"
         f"⚙️ {ad['transmission']}\n"
         f"⛽ {ad['fuel']}\n"
-        f"💰 {int(ad['price']):,} грн/тиждень\n"
+        f"💰 {int(ad['price'])} грн/тиждень\n"
         f"🛡️ {seller}\n"
         f"📋 {ad['description']}"
     )
@@ -693,7 +691,7 @@ async def finish_photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🛞 {ad['mileage']} км\n"
         f"⚙️ {ad['transmission']}\n"
         f"⛽ {ad['fuel']}\n"
-        f"💰 {int(ad['price']):,} грн/тиждень\n"
+        f"💰 {int(ad['price'])} грн/тиждень\n"
         f"🛡️ {seller}\n"
         f"📋 {ad['description']}\n\n"
     )
@@ -796,14 +794,6 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CONFIRM
 
 
-async def find(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await reply_custom(
-        update,
-        tr(context, "find_msg"),
-        reply_markup=main_menu(context),
-    )
-
-
 async def my_listings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = db()
     rows = conn.execute(
@@ -835,7 +825,7 @@ async def my_listings(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     part for part in [
                         title,
                         year,
-                        f"{int(price):,} грн/тижд" if str(price).isdigit() else price,
+                        f"{int(price)} грн/тижд" if str(price).isdigit() else price,
                         city,
                     ] if part
                 )
@@ -1066,7 +1056,6 @@ def main():
     )
 
     app.add_handler(CommandHandler("sell", sell_start))
-    app.add_handler(CommandHandler("search", find))
     app.add_handler(CommandHandler("my_ads", my_listings))
     app.add_handler(CallbackQueryHandler(repost_listing, pattern=r"^repost:\d+$"))
     app.add_handler(CommandHandler("admin", admin))
@@ -1076,12 +1065,6 @@ def main():
     app.add_handler(CommandHandler("testers", list_testers))
     app.add_handler(conversation)
 
-    app.add_handler(
-        MessageHandler(
-            filters.Regex(r"^🔎 Знайти авто$"),
-            find,
-        )
-    )
     app.add_handler(
         MessageHandler(
             filters.Regex(r"^📋 Мої оголошення$"),
