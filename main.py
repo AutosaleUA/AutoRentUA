@@ -1053,4 +1053,108 @@ def listings_api():
             "photos": json.loads(row["photo_urls"] or "[]"),
         })
 
-    return jsonify
+    return jsonify(result)
+
+
+def run_flask():
+    port = int(os.getenv("PORT", "8080"))
+    flask_app.run(host="0.0.0.0", port=port)
+
+
+def main():
+    init_db()
+    if not TOKEN:
+        raise RuntimeError("BOT_TOKEN is not set")
+
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    app = Application.builder().token(TOKEN).build()
+
+    conversation = ConversationHandler(
+        entry_points=[
+            CommandHandler("start", start),
+            MessageHandler(
+                filters.Regex(r"^🔑 Здати авто в оренду$"),
+                sell_start,
+            ),
+        ],
+        states={
+            BRAND: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_brand),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            MODEL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_model),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            FUEL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_fuel),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            YEAR: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_year),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            MILEAGE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_mileage),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            TRANSMISSION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_transmission),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            PRICE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_price),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            CITY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_city),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            DESCRIPTION: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_description),
+                MessageHandler(filters.ALL & ~filters.COMMAND, invalid_text),
+            ],
+            PHOTO: [
+                MessageHandler(filters.PHOTO, get_photo),
+                MessageHandler(filters.Regex(r"^✅ Готово$"), finish_photos),
+                MessageHandler(filters.ALL & ~filters.COMMAND, photo_invalid),
+            ],
+            CONFIRM: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, confirm),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            CommandHandler("start", start),
+            MessageHandler(
+                filters.Regex(r"^🔑 Здати авто в оренду$"),
+                restart_sell,
+            ),
+        ],
+    )
+
+    app.add_handler(CommandHandler("sell", sell_start))
+    app.add_handler(CommandHandler("my_ads", my_listings))
+    app.add_handler(CallbackQueryHandler(repost_listing, pattern=r"^repost:\d+$"))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CommandHandler("channel", channel_info))
+    app.add_handler(CommandHandler("addtester", add_tester))
+    app.add_handler(CommandHandler("removetester", remove_tester))
+    app.add_handler(CommandHandler("testers", list_testers))
+    app.add_handler(conversation)
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex(r"^📋 Мої оголошення$"),
+            my_listings,
+        )
+    )
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown))
+
+    print("AutoRent UA bot started — version 2")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
